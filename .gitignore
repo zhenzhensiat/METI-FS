@@ -1,0 +1,35 @@
+# R / RStudio
+.Rhistory
+.Rdata
+.Rproj.user/
+*.Rproj
+.RData
+.Ruserdata
+
+# Data directories (large files, user-specific)
+data_raw/
+data/
+results/
+figures/
+pipeline_runs/
+geo_datasets/
+simulations/
+benchmark/
+
+# Output files
+*.rds
+*.RDS
+*.pdf
+*.png
+*.tiff
+*.svg
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary
+*.tmp
+*.bak
+*~

@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "METI-FS: Multi-Evidence Temporal Integration for Feature Selection"
+version: 1.0.0
+date-released: "2026-04-01"
+license: MIT
+repository-code: "https://github.com/[PLACEHOLDER_GITHUB_USER]/METI-FS"
+authors:
+  - family-names: "Zhang"
+    given-names: "Zhen"
+    email: "zhangzhen7812@live.com"
+    orcid: "0009-0008-9973-4720"
+keywords:
+  - transcriptomics
+  - feature selection
+  - time-series
+  - biomarker discovery
+  - stability selection
+  - machine learning
+  - bioinformatics
+abstract: >-
+  METI-FS is a computational framework for sparse biomarker discovery
+  from time-series transcriptomics data. It integrates differential expression,
+  temporal trend analysis, co-expression networks, machine-learning stability
+  selection with gap-union thresholding, and protein-protein interaction
+  evidence into a unified pipeline.
