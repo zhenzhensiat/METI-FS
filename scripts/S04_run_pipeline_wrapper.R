@@ -1,63 +1,63 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# S04_run_pipeline_wrapper.R — GEO dataset pipeline adaptation wrapper
+# S04_run_pipeline_wrapper.R — GEO数据集pipeline适配运行器
 
-# ---- Disable Browse debug mode on error ----
+# ---- 关闭报错后进入Browse调试模式 ----
 options(error = NULL)
 #
-# Purpose: Run external GEO datasets through the pipeline without modifying original scripts.
-#       The original pipeline scripts contain hardcoded timepoint labels, factor levels,
-#       color schemes, maSigPro parameters, etc.
-#       This wrapper solves this via a "source-then-override" strategy.
+# 目的：在不修改原pipeline脚本的前提下，将外部GEO数据集跑通pipeline。
+#       Preserves time labels, factor levels from the core pipeline.
+#       颜色方案、maSigPro参数等针对MSC 4d/7d/14d/21d设计硬编码，
+#       本wrapper通过"source后覆盖"策略解决。
 #
-# Adaptation strategy:
-#   Level 1: source 00_setup.R then override PARAMS / COLORS
-#   Level 2: source 01_data_import.R then fix sample_info Time/Group factors
-#   Level 3: Fix hardcoded timepoint variables after sourcing each downstream script
-#   Level 4: Gene IDadaptation (symbol vs Ensembl)
+# 适配方式：
+#   Level 1: source 00_setup.R 后覆盖 PARAMS / COLORS
+#   Level 2: source 01_data_import.R 后修正 sample_info Time/Group factors
+#   Level 3: 每个下游脚本 source 后修正其硬编码的 timepoints 变量
+#   Level 4: 基因ID适配（symbol vs Ensembl）
 #
-# Usage:
-#   1. Select DATASET_ID (see registry below)
-#   2. source("S04_run_pipeline_wrapper.R") or run per phase
-#   3. No modification to original pipeline code
+# 用法：
+#   1. 在本脚本中选择DATASET_ID（见下方注册表）
+#   2. 直接 source("S04_run_pipeline_wrapper.R") 或逐phase执行
+#   3. 不改原pipeline任何一行代码
 #
-# Key principles:
-#   - Original pipeline scripts are read-only
-#   - All adaptation is done in this file
-#   - Methods paper uses independent validation datasets
+# 关键原则：
+#   - 原pipeline脚本只读引用
+#   - 所有适配在本文件中完成
+#   - 方法学文章不使用MSC数据
 # ==============================================================================
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  STEP 0: STEP 0: Select dataset + load config                                             ║
+# ║  STEP 0: 选择数据集 + 加载配置                                             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ---- Select dataset to run ----
-# Option 1: Set before sourcing DATASET_ID <- "GSE197067"
-# Option 2: Modify the default below
+# ---- 选择要跑的数据集 ----
+# 方式1：在source之前设置 DATASET_ID <- "GSE197067"
+# 方式2：直接修改下面的默认值
 if (!exists("DATASET_ID")) {
-  DATASET_ID <- "GSE307424"   # Default: Lung SMARCA2, 18 samples, 3 timepoints
+  DATASET_ID <- "GSE307424"   # 默认：肺癌SMARCA2，18样本，3时间点
 }
 
-# ---- Dataset registry (adaptation parameters per dataset) ----
+# ---- 数据集注册表（每个数据集的适配参数） ----
 DATASET_PROFILES <- list(
 
   GSE307424 = list(
-    project_dir   = file.path(METHODS_BASE, "pipeline_runs", "GEO_GSE307424_Lung"),
+    project_dir   = file.path(RUN_DIR, "GEO_GSE307424_Lung"),
     prefix        = "Lung",
-    # Time configuration
-    time_values   = c(6, 48, 72),              # Numeric time values (hours)
-    time_labels   = c("6h", "48h", "72h"),     # Display labels
-    time_suffix   = "d",                       # Suffix in sample names（Lung6d1 → keep "d"）
-    time_ref      = "6h",                      # DESeq2 reference level (earliest timepoint)
+    # 时间配置
+    time_values   = c(6, 48, 72),              # 数值型时间（小时）
+    time_labels   = c("6h", "48h", "72h"),     # 显示标签
+    time_suffix   = "d",                       # 样本名中的后缀（Lung6d1 → 保持"d"）
+    time_ref      = "6h",                      # DESeq2参考水平（最早时间点）
     # maSigPro
-    masigpro_degree  = 2,   # 3timepoints → degree = nTP - 1 = 2
-    masigpro_k       = 6,   # Fewer clusters (fewer genes)
-    masigpro_min_obs = 3,   # p.vector()default value; User's Guide example uses 20 but requires <= n_samples
-    # Gene ID
-    gene_id_type  = "symbol",  # Non-Ensembl!
+    masigpro_degree  = 2,   # 3个时间点 → degree = nTP - 1 = 2
+    masigpro_k       = 6,   # 聚类数减少（基因少）
+    masigpro_min_obs = 3,   # p.vector()默认值; User's Guide示例用20但需≤n_samples
+    # 基因ID
+    gene_id_type  = "symbol",  # 非Ensembl！
     # WGCNA
     wgcna_note    = "18 samples → FAQ power table fallback likely",
-    # Visualization
+    # 可视化
     colors_timepoint = c("6h"  = "#3C5488",
                          "48h" = "#F39B7F",
                          "72h" = "#E64B35"),
@@ -68,24 +68,24 @@ DATASET_PROFILES <- list(
   ),
 
   GSE197067 = list(
-    project_dir   = file.path(METHODS_BASE, "pipeline_runs", "GEO_GSE197067_Tcell"),
+    project_dir   = file.path(RUN_DIR, "GEO_GSE197067_Tcell"),
     prefix        = "Tcell",
-    # Time configuration（Exclude 0h: 0h has only Control, no Induced, interaction term not estimable）
-    time_values   = c(6, 12, 24, 48, 72),       # Exclude 0h
+    # 时间配置（排除0h：0h只有Control组，无Induced，交互项无法估计）
+    time_values   = c(6, 12, 24, 48, 72),       # 排除0h
     time_labels   = c("6h", "12h", "24h", "48h", "72h"),
     time_suffix   = "d",
-    time_ref      = "6h",                        # Earliest timepoint as reference
-    # Sample name pattern to exclude 0h（data_rawTcell0dC1-4 samples need to be removed during import）
-    exclude_samples_pattern = "^Tcell0d",        # Matches Tcell0dC1 etc.
+    time_ref      = "6h",                        # 最早时间点作参考
+    # 排除0h的样本名模式（data_raw中Tcell0dC1-4需要在导入时去掉）
+    exclude_samples_pattern = "^Tcell0d",        # 匹配Tcell0dC1等
     # maSigPro
-    masigpro_degree  = 4,   # 5timepoints → degree = nTP - 1 = 4
+    masigpro_degree  = 4,   # 5个时间点 → degree = nTP - 1 = 4
     masigpro_k       = 9,
-    masigpro_min_obs = 20,  # 40samples, following User's Guide recommendation
-    # Gene ID
+    masigpro_min_obs = 20,  # 40样本，沿用User's Guide推荐值
+    # 基因ID
     gene_id_type  = "ensembl",
     # WGCNA
     wgcna_note    = "40 samples → adequate for WGCNA",
-    # Visualization
+    # 可视化
     colors_timepoint = c("6h"  = "#3C5488",
                          "12h" = "#00A087",
                          "24h" = "#F39B7F",
@@ -97,10 +97,48 @@ DATASET_PROFILES <- list(
                      "Induced_48h"  = "#B09C85", "Control_48h"  = "#7E6148",
                      "Induced_72h"  = "#DC9FB4", "Control_72h"  = "#7570B3"),
     shape_timepoint = c("6h" = 16, "12h" = 17, "24h" = 15, "48h" = 18, "72h" = 8)
+  ),
+
+  GSE236646 = list(
+    project_dir   = file.path(RUN_DIR, "GEO_GSE236646_NPC"),
+    prefix        = "NPC",
+    time_values   = c(3, 5, 7),
+    time_labels   = c("3d", "5d", "7d"),
+    time_suffix   = "d",
+    time_ref      = "3d",
+    masigpro_degree  = 2,
+    masigpro_k       = 6,
+    masigpro_min_obs = 3,
+    gene_id_type  = "entrez",
+    wgcna_note    = "17 samples -> power table fallback likely",
+    colors_timepoint = c("3d" = "#3C5488", "5d" = "#F39B7F", "7d" = "#E64B35"),
+    colors_group = c("Induced_3d"  = "#DC0000", "Control_3d"  = "#3C5488",
+                     "Induced_5d"  = "#E64B35", "Control_5d"  = "#00A087",
+                     "Induced_7d"  = "#B09C85", "Control_7d"  = "#7E6148"),
+    shape_timepoint = c("3d" = 16, "5d" = 17, "7d" = 15)
+  ),
+
+  GSE150411 = list(
+    project_dir   = file.path(RUN_DIR, "GEO_GSE150411_Chon"),
+    prefix        = "Chon",
+    time_values   = c(3, 6, 18),
+    time_labels   = c("3h", "6h", "18h"),
+    time_suffix   = "d",
+    time_ref      = "3h",
+    masigpro_degree  = 2,
+    masigpro_k       = 6,
+    masigpro_min_obs = 3,
+    gene_id_type  = "entrez",
+    wgcna_note    = "18 samples -> power table fallback likely",
+    colors_timepoint = c("3h" = "#3C5488", "6h" = "#F39B7F", "18h" = "#E64B35"),
+    colors_group = c("Induced_3h"  = "#DC0000", "Control_3h"  = "#3C5488",
+                     "Induced_6h"  = "#E64B35", "Control_6h"  = "#00A087",
+                     "Induced_18h" = "#B09C85", "Control_18h" = "#7E6148"),
+    shape_timepoint = c("3h" = 16, "6h" = 17, "18h" = 15)
   )
 )
 
-# ---- Load current dataset's profile ----
+# ---- 加载当前数据集的profile ----
 PROFILE <- DATASET_PROFILES[[DATASET_ID]]
 if (is.null(PROFILE)) stop("Unknown DATASET_ID: ", DATASET_ID)
 
@@ -115,28 +153,28 @@ cat("================================================================\n")
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  HELPER: Common fix functions                                                      ║
+# ║  HELPER: 通用修正函数                                                      ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-#' Fix Time and Group factor levels in sample_info
-#' Call after each pipeline script source (some scripts reload sample_info from files)
+#' 修正sample_info的Time和Group因子水平
+#' 在每次source pipeline脚本后调用（因为部分脚本会重新从files加载sample_info）
 fix_sample_info_factors <- function(si) {
   actual_time_labels <- PROFILE$time_labels   # c("6h","48h","72h")
   actual_time_values <- PROFILE$time_values   # c(6, 48, 72)
   
-  # 01_data_import.R parses Lung6d1 as time_num=6, time_label="6d"
-  # but actual time unit may be hours (h) not days (d)
-  # Use time_num -> PROFILE$time_labels to build mapping table
+  # 01_data_import.R 把 Lung6d1 解析为 time_num=6, time_label="6d"
+  # 但实际时间单位可能是小时(h)不是天(d)
+  # 用 time_num → PROFILE$time_labels 建映射表
   time_map <- setNames(actual_time_labels, as.character(actual_time_values))
   # e.g. "6" → "6h", "48" → "48h", "72" → "72h"
   
-  # Rebuild time_label
+  # 重建 time_label
   si$time_label <- time_map[as.character(si$time_num)]
   
-  # Fix Time factor
+  # 修正 Time factor
   si$Time <- factor(si$time_label, levels = actual_time_labels)
   
-  # Fix Group factor
+  # 修正 Group factor
   group_levels_ordered <- c()
   for (tl in actual_time_labels) {
     group_levels_ordered <- c(group_levels_ordered,
@@ -149,27 +187,27 @@ fix_sample_info_factors <- function(si) {
   return(si)
 }
 
-#' Override COLORS timepoint and group mapping
+#' 覆盖COLORS中的timepoint和group映射
 fix_colors <- function() {
   COLORS$timepoint <<- PROFILE$colors_timepoint
   COLORS$group     <<- PROFILE$colors_group
 }
 
-#' Override maSigPro parameters in PARAMS
+#' 覆盖PARAMS中的maSigPro参数
 fix_params <- function() {
   PARAMS$masigpro_degree <<- PROFILE$masigpro_degree
   PARAMS$masigpro_k      <<- PROFILE$masigpro_k
 }
 
-#' Fix prefix issue: create file aliases expected by 00_setup.R under data_raw
+#' 修正prefix问题：在data_raw下创建00_setup.R期望的文件别名
 #' 
-#' Root cause：00_setup.Ruses basename(PROJECT_DIR) as prefix → "GEO_GSE307424_Lung"
-#'        but S03b-created files use "Lung" prefix
-#'        and each pipeline script re-sources at the beginning 00_setup.R，making overrides ineffective
+#' 根因：00_setup.R用basename(PROJECT_DIR)作prefix → "GEO_GSE307424_Lung"
+#'        但S03b创建的文件用"Lung"前缀
+#'        而且每个pipeline脚本开头都re-source 00_setup.R，覆盖无效
 #' 
-#' Solution: create copies from expected names to actual names under data_raw (file.copy)
-#'        This way FILES paths resolve regardless of how many times 00_setup.R is sourced
-#'        Only need to call once (at run_phase1 start), files persist afterwards
+#' 解决：在data_raw下创建从expected名到actual名的副本（file.copy）
+#'        这样无论00_setup.R被source多少次，FILES路径都能解析
+#'        只需调用一次（run_phase1开头），之后文件持久存在
 fix_prefix <- function() {
   expected_prefix <- basename(PROFILE$project_dir)  # "GEO_GSE307424_Lung"
   actual_prefix   <- PROFILE$prefix                  # "Lung"
@@ -181,7 +219,7 @@ fix_prefix <- function() {
   
   raw_dir <- file.path(PROFILE$project_dir, "data_raw")
   
-  # 4 files that need aliases
+  # 需要创建别名的4个文件
   suffixes <- c("_all_counts_with_order.tsv",
                 "_all_tpm.tsv",
                 "_metadata.tsv",
@@ -192,7 +230,7 @@ fix_prefix <- function() {
     expected_file <- file.path(raw_dir, paste0(expected_prefix, sfx))
     
     if (file.exists(expected_file)) {
-      # Alias already exists, skip
+      # 别名已存在，跳过
       next
     }
     
@@ -201,44 +239,160 @@ fix_prefix <- function() {
       next
     }
     
-    # Create copy (Windows symlink unreliable, file.copy is safer)
+    # 创建副本（Windows不可靠地支持symlink，用file.copy更安全）
     file.copy(actual_file, expected_file, overwrite = FALSE)
     cat(sprintf("  [ALIAS] %s → %s\n", basename(actual_file), basename(expected_file)))
   }
   
-  # Sync lineage display variables (these won't be overridden by re-source, as 00_setup uses diff_type)
-  # But diff_type itself resets on each re-source, so we accept it as"GEO_GSE307424_Lung"
-  # As long as FILES paths can find the files
+  # 同步更新lineage显示变量（这些不会被re-source覆盖，因为00_setup用的是diff_type）
+  # 但diff_type本身会被每次re-source重置，所以我们接受它为"GEO_GSE307424_Lung"
+  # 只要FILES路径能找到文件就行
   
   cat(sprintf("  [PREFIX] File aliases created: '%s_*' → '%s_*'\n",
               actual_prefix, expected_prefix))
   invisible(TRUE)
 }
 
-#' Get timepoint labels for current datasetvector (replaces hardcodedc(<original_timepoints>)）
+#' 获取当前数据集的时间点标签向量（替代硬编码的c("4d","7d","14d","21d")）
 get_timepoints <- function() {
   PROFILE$time_labels
 }
 
-#' Get numeric time vector for current dataset
+#' 获取当前数据集的时间数值向量
 get_time_values <- function() {
   PROFILE$time_values
 }
 
-#' Get target groups for current dataset's Induced arm
+#' 获取当前数据集的Induced组目标groups
 get_target_groups <- function() {
   paste0("Induced_", PROFILE$time_labels)
 }
 
-#' Ensure global environment variables are set (supports calling any phase independently)
+#' 确保全局环境变量已设置（支持单独调用任意phase）
 ensure_env <- function() {
-  options(error = NULL)  # Prevent Browse debug mode
+  options(error = NULL)  # 防止Browse调试模式
   PROJECT_DIR <<- PROFILE$project_dir
   SCRIPT_DIR  <<- PIPELINE_SCRIPTS
   source(file.path(SCRIPT_DIR, "00_setup.R"), local = FALSE)
   fix_params()
   fix_prefix()
   fix_colors()
+}
+
+#' 自动将 geo_datasets/{GSE}/data_raw/ 下的文件复制到 pipeline_runs/{project}/data_raw/
+#' 如果 pipeline_runs 下已有文件则跳过。
+#' 
+#' S03b 将数据准备到 geo_datasets/ 下，但 pipeline (00_setup.R) 读取 pipeline_runs/ 下的文件。
+#' 本函数弥合这个路径差异，对所有数据集通用——新增数据集时无需手动复制。
+auto_stage_data <- function() {
+  dst_dir <- file.path(PROFILE$project_dir, "data_raw")
+  
+  # 如果目标目录已有文件，跳过
+  if (dir.exists(dst_dir) && length(list.files(dst_dir)) > 0) {
+    cat(sprintf("  [STAGE] data_raw already populated (%d files), skipping\n",
+                length(list.files(dst_dir))))
+    return(invisible(TRUE))
+  }
+  
+  # 推断 geo_datasets 源路径:
+  #   pipeline_runs 和 geo_datasets 都在 METHODS_BASE 下
+  #   PROFILE$project_dir = file.path(RUN_DIR, "GEO_XXX_YYY")
+  #   → METHODS_BASE = dirname(dirname(PROFILE$project_dir))
+  #   → geo source  = METHODS_BASE/geo_datasets/DATASET_ID/data_raw
+  methods_base <- dirname(dirname(PROFILE$project_dir))  # 上两级 = methods/
+  src_dir <- file.path(methods_base, "geo_datasets", DATASET_ID, "data_raw")
+  
+  if (!dir.exists(src_dir)) {
+    cat(sprintf("  [STAGE] Source not found: %s\n", src_dir))
+    cat("  [STAGE] Please run S03b first to prepare the dataset.\n")
+    stop("Cannot find prepared data for ", DATASET_ID)
+  }
+  
+  src_files <- list.files(src_dir, full.names = TRUE)
+  if (length(src_files) == 0) {
+    stop(sprintf("Source directory is empty: %s", src_dir))
+  }
+  
+  dir.create(dst_dir, recursive = TRUE, showWarnings = FALSE)
+  file.copy(src_files, dst_dir, overwrite = FALSE)
+  
+  cat(sprintf("  [STAGE] Copied %d files: %s -> %s\n",
+              length(src_files), src_dir, dst_dir))
+  invisible(TRUE)
+}
+
+#' 统一样本名时间后缀为 "d"（pipeline约定格式）
+#' 
+#' 01_data_import.R 用硬编码regex解析 {prefix}{number}d{rep} 格式。
+#' S03b 对小时级数据集生成的样本名用 "h" 后缀 (如 Chon3h1, Chon18hC2)，
+#' 导致解析失败。本函数在 01_data_import 之前自动检测并修正。
+#' 
+#' 只修改 data_raw 下的 counts/tpm/metadata 文件中的列名/Sample列。
+#' 已经用 "d" 后缀的数据集（GSE236646, GSE307424等）自动跳过。
+normalize_sample_suffix <- function() {
+  raw_dir   <- file.path(PROFILE$project_dir, "data_raw")
+  actual_pfx <- PROFILE$prefix
+  
+  # 读取任一counts文件的表头以检测后缀
+  for (pfx in c(basename(PROFILE$project_dir), actual_pfx)) {
+    cf <- file.path(raw_dir, paste0(pfx, "_all_counts_with_order.tsv"))
+    if (file.exists(cf)) { counts_file <- cf; break }
+  }
+  if (!exists("counts_file") || !file.exists(counts_file)) {
+    cat("  [SUFFIX] No counts file found, skipping suffix check\n")
+    return(invisible(FALSE))
+  }
+  
+  header <- names(read.delim(counts_file, nrows = 1, check.names = FALSE))
+  sample_cols <- setdiff(header, "gene_id")
+  
+  # 检测: {prefix}{digits}{单字母} 中的那个字母
+  pat <- paste0("^", actual_pfx, "\\d+([a-zA-Z])")
+  matches <- regmatches(sample_cols, regexec(pat, sample_cols))
+  detected <- unique(sapply(matches, function(x) if (length(x) >= 2) x[2] else NA))
+  detected <- detected[!is.na(detected)]
+  
+  if (length(detected) == 0 || all(detected == "d")) {
+    cat("  [SUFFIX] Sample names already use 'd' suffix, OK\n")
+    return(invisible(TRUE))
+  }
+  
+  old_sfx <- detected[1]
+  cat(sprintf("  [SUFFIX] Detected suffix '%s' in sample names, normalizing to 'd'...\n", old_sfx))
+  
+  # gsub 替换模式: {prefix}{digits}{old_suffix} → {prefix}{digits}d
+  gsub_pat <- paste0("^(", actual_pfx, "\\d+)", old_sfx)
+  gsub_rep <- "\\1d"
+  
+  # 处理所有 data_raw 下的文件
+  file_suffixes <- c("_all_counts_with_order.tsv", "_all_tpm.tsv", "_metadata.tsv")
+  prefixes_to_try <- unique(c(basename(PROFILE$project_dir), actual_pfx))
+  n_renamed <- 0
+  
+  for (fs in file_suffixes) {
+    for (pfx in prefixes_to_try) {
+      f <- file.path(raw_dir, paste0(pfx, fs))
+      if (!file.exists(f)) next
+      
+      dat <- read.delim(f, check.names = FALSE, stringsAsFactors = FALSE)
+      
+      if (fs == "_metadata.tsv") {
+        # metadata: 修改 Sample 列
+        if ("Sample" %in% names(dat)) {
+          dat$Sample <- gsub(gsub_pat, gsub_rep, dat$Sample)
+        }
+      } else {
+        # counts/tpm: 修改列名
+        names(dat) <- gsub(gsub_pat, gsub_rep, names(dat))
+      }
+      
+      write.table(dat, f, sep = "\t", quote = FALSE, row.names = FALSE)
+      n_renamed <- n_renamed + 1
+    }
+  }
+  
+  cat(sprintf("  [SUFFIX] Normalized %d files: '%s' -> 'd'\n", n_renamed, old_sfx))
+  invisible(TRUE)
 }
 
 
@@ -249,12 +403,15 @@ ensure_env <- function() {
 run_phase1 <- function() {
   cat("\n### PHASE 1: Data import + preprocessing + normalization ###\n\n")
   
+  # ---- 0. 自动复制 geo_datasets → pipeline_runs ----
+  auto_stage_data()
+  
   # ---- 1a. source 00_setup.R ----
   PROJECT_DIR <<- PROFILE$project_dir
   SCRIPT_DIR  <<- PIPELINE_SCRIPTS
   source(file.path(SCRIPT_DIR, "00_setup.R"), local = FALSE)
   
-  # Immediately override PARAMS and COLORS
+  # 立即覆盖PARAMS和COLORS
   fix_params()
   fix_prefix()
   fix_colors()
@@ -264,13 +421,19 @@ run_phase1 <- function() {
   cat(sprintf("  [OVERRIDE] COLORS$timepoint: %s\n",
               paste(names(COLORS$timepoint), collapse = ", ")))
   
+  # ---- 1a-bis. 统一样本名后缀为 "d" ----
+  # 01_data_import.R 硬编码解析 "{prefix}{number}d{rep}" 格式
+  # S03b 生成的小时级数据集用 "h" 后缀 (Chon3h1) → 解析失败
+  # 本步骤在 01_data_import 之前自动修正
+  normalize_sample_suffix()
+  
   # ---- 1b. source 01_data_import.R ----
-  # This script parses sample names and sets Time/Group factor levels
-  # Issue: L77 hardcodes levels = c(<original_timepoints>)
-  # Strategy: fix immediately after source
+  # 这个脚本会解析样本名并设置Time/Group factor levels
+  # 问题：L77硬编码 levels = c("4d","7d","14d","21d")
+  # 策略：source后立即修正
   source(file.path(SCRIPT_DIR, "01_data_import.R"), local = FALSE)
   
-  # ---- Exclude samples from incomplete timepoints (e.g., GSE197067 0h has only Control) ----
+  # ---- 排除不完整时间点的样本（如GSE197067的0h只有Control） ----
   if (!is.null(PROFILE$exclude_samples_pattern)) {
     excl_pat <- PROFILE$exclude_samples_pattern
     excl_idx <- grepl(excl_pat, colnames(counts_raw))
@@ -280,36 +443,36 @@ run_phase1 <- function() {
       cat(sprintf("\n  [EXCLUDE] Removing %d samples matching '%s': %s\n",
                   n_excl, excl_pat, paste(excl_names, collapse = ", ")))
       
-      # Remove from counts and tpm matrices
+      # 从counts和tpm矩阵中删除
       counts_raw <<- counts_raw[, !excl_idx, drop = FALSE]
       tpm_raw    <<- tpm_raw[, !excl_idx, drop = FALSE]
       
-      # Remove from sample_info
+      # 从sample_info中删除
       sample_info <<- sample_info[!excl_idx, , drop = FALSE]
       
       cat(sprintf("  [EXCLUDE] Remaining: %d samples\n", ncol(counts_raw)))
     }
   }
   
-  # Fix Time and Group factor levels
+  # 修正Time和Group因子水平
   sample_info <<- fix_sample_info_factors(sample_info)
   
-  # Verify fix results
+  # 验证修正结果
   cat("\n  [FIX] sample_info$Time levels after correction:\n")
   print(table(sample_info$Time))
   cat("  [FIX] sample_info$Group levels after correction:\n")
   print(table(sample_info$Group))
   
-  # Check for NAs
+  # 检查是否有NA
   if (any(is.na(sample_info$Time))) {
     stop("FATAL: sample_info$Time contains NA after fix! Check time_labels in PROFILE.")
   }
   
-  # Re-save corrected sample_info
+  # 重新保存修正后的sample_info
   save_data(sample_info, FILES$sample_info)
   
-  # If samples were excluded, must write trimmed counts/tpm back to disk
-  # Otherwise 02_preprocessing reads original column count from FILES$counts_raw
+  # 如果有样本被排除，必须把修剪后的counts/tpm写回磁盘
+  # 否则02_preprocessing从FILES$counts_raw读到的还是原始列数
   if (!is.null(PROFILE$exclude_samples_pattern)) {
     cat("  [WRITE] Overwriting raw data files with excluded samples removed...\n")
     counts_df <- data.frame(gene_id = rownames(counts_raw), counts_raw, check.names = FALSE)
@@ -320,21 +483,21 @@ run_phase1 <- function() {
                 basename(FILES$counts_raw), nrow(counts_raw), ncol(counts_raw)))
   }
   
-  # ---- 1c. Gene ID adaptation ----
-  # If dataset uses gene symbol (not Ensembl), fix gene_annotation
+  # ---- 1c. 基因ID适配 ----
+  # 如果数据集用gene symbol（非Ensembl），需要修正gene_annotation
   if (PROFILE$gene_id_type == "symbol") {
     cat("\n  [ADAPT] Gene ID type = symbol (not Ensembl)\n")
-    # gene_anno already created by 01_data_import.R
-    # But it tries to query org.Hs.eg.db with ensembl_gene_id; treating symbols as Ensembl will fail
-    # Fix: remap using SYMBOL as keytype
+    # gene_anno已由01_data_import.R创建
+    # 但它试图用ensembl_gene_id去查org.Hs.eg.db，symbol当作Ensembl会失败
+    # 修正：用SYMBOL作为keytype重新映射
     
     gene_anno_fixed <- data.frame(
-      ensembl_gene_id = rownames(counts_raw),  # actually gene symbol
-      hgnc_symbol     = rownames(counts_raw),  # also gene symbol
+      ensembl_gene_id = rownames(counts_raw),  # 实际是gene symbol
+      hgnc_symbol     = rownames(counts_raw),  # 同样是gene symbol
       stringsAsFactors = FALSE
     )
     
-    # Try to get Entrez ID (using SYMBOL keytype)
+    # 尝试获取Entrez ID（用SYMBOL keytype）
     tryCatch({
       sym2entrez <- AnnotationDbi::select(
         org.Hs.eg.db,
@@ -360,12 +523,97 @@ run_phase1 <- function() {
     cat("  [ADAPT] gene_annotation overwritten with symbol-based mapping\n")
   }
   
+  # ---- 1c-bis. Entrez → Ensembl ID mapping (NCBI counts) ----
+  else if (PROFILE$gene_id_type == "entrez") {
+    cat("\n  [ADAPT] Gene ID type = entrez (NCBI counts)\n")
+    cat("  [ADAPT] Performing Entrez -> Ensembl ID mapping...\n")
+    
+    entrez_ids <- rownames(counts_raw)
+    n_total <- length(entrez_ids)
+    cat(sprintf("  [ADAPT] Input: %d genes with Entrez IDs\n", n_total))
+    
+    tryCatch({
+      mapping <- AnnotationDbi::select(
+        org.Hs.eg.db,
+        keys    = entrez_ids,
+        keytype = "ENTREZID",
+        columns = c("ENSEMBL", "SYMBOL")
+      )
+      # 每个Entrez ID只保留第一个Ensembl映射
+      mapping <- mapping[!duplicated(mapping$ENTREZID), ]
+      
+      n_mapped   <- sum(!is.na(mapping$ENSEMBL))
+      n_unmapped <- sum(is.na(mapping$ENSEMBL))
+      cat(sprintf("  [ADAPT] Mapped: %d/%d (%.1f%%), Unmapped: %d\n",
+                  n_mapped, n_total, 100 * n_mapped / n_total, n_unmapped))
+      
+      # 只保留有Ensembl映射的基因
+      mapping_valid <- mapping[!is.na(mapping$ENSEMBL), ]
+      
+      # 处理反向重复: 多个Entrez -> 同一Ensembl
+      ens_dup <- duplicated(mapping_valid$ENSEMBL)
+      if (any(ens_dup)) {
+        cat(sprintf("  [ADAPT] %d duplicate Ensembl IDs removed\n", sum(ens_dup)))
+        mapping_valid <- mapping_valid[!ens_dup, ]
+      }
+      
+      keep_entrez <- mapping_valid$ENTREZID
+      new_ensembl <- mapping_valid$ENSEMBL
+      new_symbol  <- mapping_valid$SYMBOL
+      
+      # 更新 counts_raw 和 tpm_raw 的行名
+      counts_raw <<- counts_raw[keep_entrez, , drop = FALSE]
+      rownames(counts_raw) <<- new_ensembl
+      
+      tpm_raw <<- tpm_raw[keep_entrez, , drop = FALSE]
+      rownames(tpm_raw) <<- new_ensembl
+      
+      cat(sprintf("  [ADAPT] counts_raw: %d -> %d genes (after mapping)\n",
+                  n_total, nrow(counts_raw)))
+      
+      # 重写磁盘上的 counts/tpm 文件
+      cat("  [ADAPT] Overwriting counts/tpm files with Ensembl IDs...\n")
+      counts_df <- data.frame(gene_id = rownames(counts_raw), counts_raw, check.names = FALSE)
+      write.table(counts_df, FILES$counts_raw, sep = "\t", row.names = FALSE, quote = FALSE)
+      tpm_df <- data.frame(gene_id = rownames(tpm_raw), tpm_raw, check.names = FALSE)
+      write.table(tpm_df, FILES$tpm_raw, sep = "\t", row.names = FALSE, quote = FALSE)
+      
+      # 构建 gene_annotation
+      gene_anno_fixed <- data.frame(
+        ensembl_gene_id = new_ensembl,
+        hgnc_symbol     = ifelse(is.na(new_symbol), new_ensembl, new_symbol),
+        entrez_id       = keep_entrez,
+        stringsAsFactors = FALSE
+      )
+      
+      gene_anno <<- gene_anno_fixed
+      save_data(gene_anno, FILES$gene_annotation)
+      
+      # 更新 data_raw 下的 annotation 文件 (fix_prefix 别名)
+      for (pfx in c(basename(PROFILE$project_dir), PROFILE$prefix)) {
+        anno_path <- file.path(PROFILE$project_dir, "data_raw",
+                                paste0(pfx, "_gene_annotation.tsv"))
+        if (file.exists(anno_path)) {
+          write.table(gene_anno_fixed, anno_path,
+                      sep = "\t", row.names = FALSE, quote = FALSE)
+        }
+      }
+      
+      cat(sprintf("  [ADAPT] Gene annotation: %d genes (Ensembl + Symbol + Entrez)\n",
+                  nrow(gene_anno_fixed)))
+      cat("  [ADAPT] Entrez -> Ensembl mapping COMPLETE\n")
+      
+    }, error = function(e) {
+      stop(sprintf("[FATAL] Entrez -> Ensembl mapping failed: %s\n", e$message))
+    })
+  }
+  
   # ---- 1d. source 02_preprocessing.R ----
   source(file.path(SCRIPT_DIR, "02_preprocessing.R"), local = FALSE)
   
   # ---- 1e. 03_normalization_QC (ADAPTED) ----
-  # Issue: L38 relevel(ref="4d") + L81/L110 shape hardcoded
-  # Cannot source original script (relevel during source throws error), write adapted version
+  # 问题：L38 relevel(ref="4d") + L81/L110 shape硬编码
+  # 不能source原脚本（relevel在source中途执行会报错），写adapted版
   cat("  [ADAPT] Running adapted normalization + QC (03)...\n")
   run_03_normalization_adapted()
   
@@ -608,7 +856,7 @@ run_06_maSigPro_adapted <- function() {
     }
     
     if (!is.null(sig_genes_for_cluster)) {
-      # Dynamically adjust k: reduce k if too few genes
+      # 动态调整k：如果基因太少，减小k
       n_sig <- if (is.list(sig_genes_for_cluster)) 
         nrow(sig_genes_for_cluster$sig.profiles) else nrow(sig_genes_for_cluster)
       k_use <- min(PARAMS$masigpro_k, max(2, floor(n_sig / 5)))
@@ -718,41 +966,41 @@ run_phase2 <- function() {
   ensure_env()
   
   # ---- 2a. 04_DEG_analysis.R ----
-  # Issue: L65 timepoints <- c(<original_timepoints>)
+  # 问题：L65 timepoints <- c("4d","7d","14d","21d")
   #       L137 target_groups <- c("Induced_4d", ...)
-  # Strategy: after source, point timepoints and target_groups to correct values
-  #       But 04 uses local variables, already executed when source completes
-  #       Key issue: L65 timepoints determines which Wald test contrasts to make
-  #       If Group factor is already fixed，c("group","Induced_6h","Control_6h")is a valid contrast
-  #       But 04_DEG hardcodes timepoints in the for loop!
+  # 策略：source后让timepoints和target_groups指向正确值
+  #       但04内部用了局部变量，source时已经执行完了
+  #       关键问题：L65的timepoints决定了Wald检验做哪些对比
+  #       如果Group factor已修正，c("group","Induced_6h","Control_6h")是合法contrast
+  #       但04_DEG硬编码了for loop里的timepoints!
   #
-  # Safest approach: temporarily override 04_DEG core logic
-  # But due to the "no modification" principle, we need another strategy:
-  #   → 04_DEG.R at execution, timepoints variable is defined internally
-  #   → We cannot inject local variables before source
-  #   → Need to write an adapted version of 04_DEG for GEO data
+  # 最安全的方案：临时覆盖04_DEG的核心逻辑
+  # 但由于"不改原脚本"原则，我们需要另一个策略：
+  #   → 04_DEG.R 在执行时，timepoints变量在其内部定义
+  #   → 我们无法在source前注入局部变量
+  #   → 需要写一个替代版本的04_DEG for GEO数据
 
   cat("  [ADAPT] Running adapted DEG analysis (04_DEG)...\n")
   run_04_DEG_adapted()
   
   # ---- 2b. 05_DEG_visualization.R ----
-  # Similarly, hardcoded timepoints
+  # 同理，hardcoded timepoints
   cat("  [ADAPT] Running adapted DEG visualization (05)...\n")
   run_05_DEGvis_adapted()
   
   # ---- 2c. 06_maSigPro_trends.R ----
-  # 06 re-sources 00_setup.R → degreeis reset to3 → 3timepoints+degree=3overflow
-  # Need adapted version
+  # 06 re-source 00_setup.R → degree被重置为3 → 3时间点+degree=3溢出
+  # 需要adapted版本
   cat(sprintf("  [ADAPT] Running adapted maSigPro (degree=%d, k=%d)...\n",
       PROFILE$masigpro_degree, PROFILE$masigpro_k))
   run_06_maSigPro_adapted()
   
   # ---- 2d. 08_WGCNA.R ----
-  # WGCNAReads from VST matrix and sample_info, no hardcoded timepoints
-  # group_levels at L67-68 hardcodes 8 groups, but it uses actual values from the Group column
-  # Wait — L67 actually is:
-  #   group_levels <- c("Control_4d", ... "Induced_21d")  ← hardcoded!
-  # Needs handling
+  # WGCNA从VST矩阵和sample_info读取，没有硬编码时间
+  # group_levels在L67-68硬编码了8组，但它用的是Group列的实际值
+  # 等一下——L67实际上是：
+  #   group_levels <- c("Control_4d", ... "Induced_21d")  ← 硬编码！
+  # 需要处理
   cat("  [ADAPT] Running WGCNA...\n")
   run_08_WGCNA_adapted()
   
@@ -761,15 +1009,15 @@ run_phase2 <- function() {
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  PHASE 3: Candidate filtering（09A → 09C → 09D → 09F → 10）                          ║
+# ║  PHASE 3: 候选筛选（09A → 09C → 09D → 09F → 10）                          ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 run_phase3 <- function() {
   cat("\n### PHASE 3: Candidate selection pipeline ###\n\n")
   ensure_env()
   
-  # Pre-load global variables (original pipeline sources from 01 onward in RUN_GUIDE, these exist naturally)
-  # Use assign to ensure placement in .GlobalEnv (<<- may target wrong scope in nested environments)
+  # 预加载全局变量（原pipeline在RUN_GUIDE里从01一路source下来，这些变量自然存在）
+  # 用assign确保放在.GlobalEnv中（<<-在嵌套环境中可能指向错误位置）
   assign("sample_info",  fix_sample_info_factors(readRDS(FILES$sample_info)), envir = .GlobalEnv)
   assign("gene_anno",    readRDS(FILES$gene_annotation), envir = .GlobalEnv)
   assign("tpm_filtered", readRDS(FILES$tpm_filtered), envir = .GlobalEnv)
@@ -778,16 +1026,16 @@ run_phase3 <- function() {
   # 09A: candidate pool
   source(file.path(SCRIPT_DIR, "09A_candidate_pool.R"), local = FALSE)
   
-  # Re-inject sample_info (ensure in .GlobalEnv)
+  # 重新注入sample_info（确保在.GlobalEnv中）
   assign("sample_info", fix_sample_info_factors(readRDS(FILES$sample_info)), envir = .GlobalEnv)
   
   # 09C: bootstrap stability selection
   source(file.path(SCRIPT_DIR, "09C_ML_stability_selection.R"), local = FALSE)
   
   # 09D: gap-union selection
-  # [v2] Do not pre-exclude any algorithm — RFautomatically excludes via MIN_FREQ_SIGNAL=0.20
-  # Ref: Strobl et al. 2007 BMC Bioinf; Nicodemus et al. 2010 BMC Bioinf
-  #   RFVIM is unstable in p>>n scenarios, but exclusion should be data-driven, not preset
+  # [v2] 不预排除任何算法 — RF通过 MIN_FREQ_SIGNAL=0.20 自动排除
+  # 文献: Strobl et al. 2007 BMC Bioinf; Nicodemus et al. 2010 BMC Bioinf
+  #   RF在p>>n场景下VIM不稳定，但应由数据驱动排除，而非预设
   {
     lines_09D <- readLines(file.path(SCRIPT_DIR, "09D_gap_union_selection.R"))
     idx_exclude <- grep('EXCLUDE_ALGOS\\s*<-\\s*c\\("RF"\\)', lines_09D)
@@ -801,8 +1049,8 @@ run_phase3 <- function() {
     unlink(tmp_09D)
   }
   
-  # 09F: PPI hub — needs local STRING database
-  # Check if stringdb_cache exists
+  # 09F: PPI hub — 需要STRING本地数据库
+  # 检查stringdb_cache是否存在
   string_cache <- file.path(DATA_DIR, "stringdb_cache")
   links_file <- file.path(string_cache, "9606.protein.links.v12.0.txt.gz")
   
@@ -818,7 +1066,7 @@ run_phase3 <- function() {
     cat("    9606.protein.info.v12.0.txt.gz\n")
   }
   
-  # 10_integration.R — contains hardcoded timepoints on L124
+  # 10_integration.R — 含hardcoded timepoints on L124
   cat("  [ADAPT] Running integration (10)...\n")
   run_10_integration_adapted()
   
@@ -828,8 +1076,8 @@ run_phase3 <- function() {
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  ADAPTED SCRIPT FUNCTIONS                                                  ║
-# ║  These functions replace original pipeline scripts that contain hardcoded time references                              ║
-# ║  Logic is identical, just replacing c(<original_timepoints>) with get_timepoints()       ║
+# ║  这些函数替代原pipeline中含硬编码时间引用的脚本                              ║
+# ║  逻辑完全相同，只是将 c("4d","7d","14d","21d") 替换为 get_timepoints()       ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # ------------------------------------------------------------------
@@ -869,9 +1117,9 @@ run_04_DEG_adapted <- function() {
   design(dds_group) <- ~ group
   dds_group <- DESeq(dds_group)
   
-  # ★ Key adaptation point: use actual time labels ★
+  # ★ 关键适配点：使用实际时间标签 ★
   timepoints <- get_timepoints()
-  # Exclude timepoints with only Control group (e.g., GSE197067 0h)
+  # 排除只有Control组的时间点（如GSE197067的0h）
   if (!is.null(PROFILE$has_0h_control_only) && PROFILE$has_0h_control_only) {
     timepoints <- setdiff(timepoints, "0h")
     cat("  [ADAPT] Excluding 0h from Wald contrasts (Control-only)\n")
@@ -923,7 +1171,7 @@ run_04_DEG_adapted <- function() {
   
   group_names <- levels(dds_8g$group)
   target_groups <- get_target_groups()
-  # Exclude timepoints with only Control
+  # 排除只有Control的时间点
   if (!is.null(PROFILE$has_0h_control_only) && PROFILE$has_0h_control_only) {
     target_groups <- setdiff(target_groups, "Induced_0h")
   }
@@ -1017,7 +1265,7 @@ run_05_DEGvis_adapted <- function() {
   sample_info <- readRDS(FILES$sample_info)
   gene_anno   <- readRDS(FILES$gene_annotation)
   
-  timepoints <- all_results$timepoints  # Use actual timepoints saved by step 04
+  timepoints <- all_results$timepoints  # 使用04保存的实际时间点
   
   # DEG count bar chart
   deg_summary <- data.frame()
@@ -1082,11 +1330,11 @@ run_08_WGCNA_adapted <- function() {
   
   log_step("08_WGCNA", "Starting WGCNA (ADAPTED)...")
   
-  # Inject correct sample_info into global environment
+  # 注入正确的sample_info到全局环境
   si <- fix_sample_info_factors(readRDS(FILES$sample_info))
   assign("sample_info", si, envir = .GlobalEnv)
   
-  # Source original 08_WGCNA.R directly (with fixes: power R2>=0.80 + dynamic group_levels)
+  # 直接source原08_WGCNA.R（已合并修复：power R²>=0.80 + dynamic group_levels）
   source(file.path(SCRIPT_DIR, "08_WGCNA.R"), local = FALSE)
   
   log_step("08_WGCNA", "Step 08 COMPLETE (ADAPTED)")
@@ -1097,17 +1345,17 @@ run_08_WGCNA_adapted <- function() {
 # 10_integration adapted
 # ------------------------------------------------------------------
 run_10_integration_adapted <- function() {
-  # 10_integration.R L124: for (tp in c(<original_timepoints>))
-  # This section annotates with deg_by_time results; returns NULL if key doesn't exist
-  # deg_results now stores adapted timepoints
-  # But 10_integration hardcodes the for loop → annotation lost
-  # Impact: not fatal, just per-timepoint LFC annotation columns are empty in integration table
+  # 10_integration.R L124: for (tp in c("4d","7d","14d","21d"))
+  # 这段是用deg_by_time结果做注释，如果key不存在会返回NULL
+  # 实际上deg_results现在保存了adapted的timepoints
+  # 但10_integration硬编码了for loop → 结果丢失该注释
+  # 影响：不致命，只是integration表里的per-timepoint LFC注释列为空
   
-  # Strategy: source directly, accept that per-timepoint annotation may be lost
-  # Core filtering logic (ML + PPI union) does not depend on these annotations
+  # 策略：直接source，接受per-timepoint注释可能丢失
+  # 核心筛选逻辑（ML + PPI union）不依赖这些注释
   
   cat("  [INFO] Running original 10_integration.R...\n")
-  cat("  [INFO] Per-timepoint LFC annotation may be incomplete (hardcoded timepoints from original analysis)\n")
+  cat("  [INFO] Per-timepoint LFC annotation may be incomplete (hardcoded MSC timepoints)\n")
   source(file.path(SCRIPT_DIR, "10_integration.R"), local = FALSE)
   
   log_step("10_INT", "Step 10 COMPLETE (via wrapper)")
@@ -1115,7 +1363,7 @@ run_10_integration_adapted <- function() {
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  Main execution entry point                                                                ║
+# ║  主执行入口                                                                ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 run_all <- function() {
@@ -1141,12 +1389,12 @@ run_all <- function() {
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  STRING database preparation (utility functions)                                               ║
+# ║  STRING数据库准备（辅助函数）                                               ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-#' Copy STRING local database to current GEO project
-#' or create symbolic link
-setup_string_cache <- function(source_project = file.path(METHODS_BASE, "..", "reference_project")) {
+#' 从MSC项目复制STRING本地数据库到当前GEO项目
+#' 或者创建符号链接
+setup_string_cache <- function(source_project = METHODS_BASE) {
   src_cache <- file.path(source_project, "data", "stringdb_cache")
   dst_cache <- file.path(PROFILE$project_dir, "data", "stringdb_cache")
   
@@ -1162,7 +1410,7 @@ setup_string_cache <- function(source_project = file.path(METHODS_BASE, "..", "r
   
   dir.create(dst_cache, recursive = TRUE, showWarnings = FALSE)
   
-  # Copy files
+  # 复制文件
   files_to_copy <- list.files(src_cache, full.names = TRUE)
   for (f in files_to_copy) {
     file.copy(f, file.path(dst_cache, basename(f)), overwrite = FALSE)
@@ -1175,7 +1423,7 @@ setup_string_cache <- function(source_project = file.path(METHODS_BASE, "..", "r
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  Usage instructions (shown when running this script directly)                                            ║
+# ║  使用说明（直接运行本脚本时显示）                                            ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 if (sys.nframe() == 0) {
@@ -1184,20 +1432,20 @@ if (sys.nframe() == 0) {
   cat("  S04_run_pipeline_wrapper.R — Usage\n")
   cat("================================================================\n")
   cat("\n")
-  cat("  # Run per phase (recommended, allows inspecting intermediate results):\n")
-  cat("  DATASET_ID <- 'GSE307424'    # Select dataset\n")
-  cat("  source('S04_run_pipeline_wrapper.R')  # Load configuration\n")
-  cat("  run_phase1()                 # Data import + preprocessing + normalization\n")
+  cat("  # 逐phase运行（推荐，可以检查中间结果）：\n")
+  cat("  DATASET_ID <- 'GSE307424'    # 选择数据集\n")
+  cat("  source('S04_run_pipeline_wrapper.R')  # 加载配置\n")
+  cat("  run_phase1()                 # 数据导入+预处理+标准化\n")
   cat("  run_phase2()                 # DEG+maSigPro+WGCNA\n")
-  cat("  run_phase3()                 # Candidate selection + integration\n")
+  cat("  run_phase3()                 # 候选筛选+整合\n")
   cat("\n")
-  cat("  # Run all at once:\n")
+  cat("  # 一键运行：\n")
   cat("  run_all()\n")
   cat("\n")
-  cat("  # STRING database preparation (needed for 09F):\n")
-  cat("  setup_string_cache()         # Copy from source project\n")
+  cat("  # STRING数据库准备（09F需要）：\n")
+  cat("  setup_string_cache()         # 从AdipoMSC复制\n")
   cat("\n")
-  cat("  # View current dataset profile:\n")
+  cat("  # 查看当前数据集profile：\n")
   cat("  str(PROFILE)\n")
   cat("\n")
   cat("================================================================\n")

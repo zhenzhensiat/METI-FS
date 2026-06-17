@@ -37,20 +37,29 @@ METI-FS/
 │   ├── 09F_PPI_hub_selection.R       # STRING PPI hub identification
 │   └── 10_integration.R      # Final ML ∪ PPI integration
 │
-├── scripts/                   # Simulation, benchmarking, and manuscript scripts
-│   ├── S_config.R             # Shared configuration (paths, constants)
-│   ├── S01_simulation_engine.R       # Synthetic data generator
-│   ├── S01b_benchmark_timing.R       # Runtime profiling
-│   ├── S02_pipeline_adapter.R        # Simulation → pipeline format adapter
-│   ├── S03_download_and_prepare_GEO.R # GEO dataset download/preparation
-│   ├── S04_run_pipeline_wrapper.R    # GEO dataset pipeline runner
-│   ├── S04_sim_runner.R              # Simulation pipeline runner
-│   ├── S05_benchmark_collector.R     # Result collection + metrics
-│   ├── S06_ablation_study.R          # Component ablation analysis
-│   ├── S07_cross_dataset_summary.R   # Cross-dataset summary + figures
-│   ├── S08_baseline_comparison.R     # Baseline method comparison
-│   ├── S09_manuscript_figures.R      # Publication figure generation
-│   └── run_demo.R                    # Quick-start demo script
+├── scripts/                   # Simulation, benchmarking, and analysis scripts
+│   ├── S_config.R                     # Shared configuration (paths, parameters)
+│   ├── S00_GEO_search.R               # GEO dataset search methodology
+│   ├── S01_simulation_engine.R        # Synthetic data generator (v3)
+│   ├── S01b_benchmark_timing.R        # Runtime profiling
+│   ├── S02_pipeline_adapter.R         # Simulation to pipeline format adapter
+│   ├── S03_download_and_prepare_GEO.R # GEO dataset download and preparation
+│   ├── S04_run_pipeline_wrapper.R     # GEO dataset pipeline runner
+│   ├── S04_sim_runner.R               # Simulation pipeline runner
+│   ├── S05_benchmark_collector.R      # Result collection and metrics
+│   ├── S06_ablation_study.R           # Component ablation analysis (LOCO)
+│   ├── S07_cross_dataset_summary.R    # Cross-dataset summary and figures
+│   ├── S08_baseline_comparison.R      # Baseline method comparison
+│   ├── S09_manuscript_figures.R       # Publication figure generation
+│   ├── S10_module_preservation.R      # Split-half WGCNA module preservation
+│   ├── S11_lfc_sensitivity.R          # lfcThreshold sensitivity analysis
+│   ├── S12_simple_baselines.R         # Simple baseline comparisons
+│   ├── S13_geo_ablation.R             # GEO dataset ablation (A3-A9)
+│   ├── S14_v3_ablation.R              # Extended structure ablation
+│   ├── S15_rf_exclusion.R             # RF exclusion status analysis
+│   ├── S16_wgcna_enrichment.R         # WGCNA module GO enrichment
+│   ├── S17_ppi_analysis.R             # STRING PPI hub comparison
+│   └── run_demo.R                     # Quick-start demo script
 │
 ├── README.md
 ├── LICENSE

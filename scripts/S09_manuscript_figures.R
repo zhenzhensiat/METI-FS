@@ -1,11 +1,24 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# S09_manuscript_figures.R  v2.3 — Publication-ready figures for METI-FS
-# 2026-04-13
+# S09_manuscript_figures.R — Publication-ready figures for METI-FS
 #
-# v2.3 changes: Fig3B legend → top-left; Fig4B legend → outside top
-# v2.2 changes: recursive file search; cairo_pdf; coord_cartesian; expression()
-# v2.0 changes: Fig3 redesigned for A1/A2 only
+# Figure mapping:
+#   Fig. 2  Simulation benchmark              generate_fig2()
+#   Fig. 3  Algorithm stability               generate_fig3()
+#   Fig. 4  Ablation study                    generate_fig4()
+#   Fig. 5  Cross-dataset screening funnel    generate_fig5()
+#   Fig. 6  Upstream strategy comparison      generate_fig6()
+#   Fig. 7  ML method comparison              generate_fig7()
+#
+# Figure mapping (v3.0):
+#   Fig. 1  Pipeline schematic               (manual)
+#   Fig. 2  Simulation benchmark              generate_fig2()
+#   Fig. 3  Algorithm stability               generate_fig3()
+#   Fig. 4  Ablation study                    generate_fig4()
+#   Fig. 5  Cross-dataset screening funnel    generate_fig5()
+#   Fig. 6  Upstream strategy comparison      generate_fig6()
+#   Fig. 7  ML method comparison              generate_fig7()
+#   Table S1                                  generate_table_S1()
 #
 # Usage:
 #   source("S09_manuscript_figures.R")
@@ -15,10 +28,10 @@
 # ---- 0. Configuration ----
 if (file.exists("S_config.R")) {
   source("S_config.R")
-} else if (file.exists(file.path(file.path(METHODS_BASE, "Scripts"), "S_config.R"))) {
-  source(file.path(file.path(METHODS_BASE, "Scripts"), "S_config.R"))
+
+  
 } else {
-  BENCH_DIR <- file.path(METHODS_BASE, "benchmark_results")
+  BENCH_DIR <- BENCH_DIR
 }
 
 FIG_DIR <- file.path(BENCH_DIR, "manuscript_figures")
@@ -73,7 +86,21 @@ PAL_METHOD  <- c("Single LASSO" = "#2E86AB", "Single Elastic Net" = "#A23B72",
 PAL_PIPE    <- c("P1 (DESeq2 LRT only)" = "#E64B35",
                  "P2 (P1 \u2229 WGCNA)" = "#4DBBD5",
                  "P3 (METI-FS)" = "#00A087")
+PAL_DATASET <- c("GSE197067" = "#E64B35", "GSE307424" = "#4DBBD5",
+                 "GSE236646" = "#00A087", "GSE150411" = "#3C5488")
+LAB_DATASET <- c("GSE197067" = "GSE197067 (T cell)",
+                 "GSE307424" = "GSE307424 (Lung cancer)",
+                 "GSE236646" = "GSE236646 (HSV-1)",
+                 "GSE150411" = "GSE150411 (Chondrocyte)")
 DS_LEVELS   <- c("GSE197067", "GSE307424", "GSE236646", "GSE150411")
+
+# ---- Pipeline run directories (for funnel data etc.) ----
+RUN_DIRS <- list(
+  GSE197067 = file.path(RUN_DIR, "GEO_GSE197067_Tcell"),
+  GSE307424 = file.path(RUN_DIR, "GEO_GSE307424_Lung"),
+  GSE236646 = file.path(RUN_DIR, "GEO_GSE236646_NPC"),
+  GSE150411 = file.path(RUN_DIR, "GEO_GSE150411_Chon")
+)
 
 save_fig <- function(p, name, width, height) {
   for (ext in c("pdf", "png")) {
@@ -127,11 +154,69 @@ generate_fig2 <- function() {
 
 
 # ==============================================================================
-# Fig. 3  Ablation — A1/A2 paired differences (2-panel)
+# Fig. 3  Algorithm stability — violin + scatter  (was Fig. 4 in v2.x)
 # ==============================================================================
 generate_fig3 <- function() {
+  f <- find_bench_file("nogueira_stability_all.csv")
+  if (is.na(f)) { cat("[S09] nogueira_stability_all.csv not found — skip Fig.3\n"); return(invisible()) }
+  nog <- read.csv(f, stringsAsFactors = FALSE)
+  nog$Method <- recode(nog$method, "LASSO"="LASSO","SVM"="SVM-RFE","RF"="RF","Gap-Union"="Gap-Union")
+  nog$Method <- factor(nog$Method, levels=c("SVM-RFE","LASSO","Gap-Union","RF"))
+
+  mu <- nog %>% group_by(Method) %>% summarise(mv=mean(nogueira,na.rm=TRUE), .groups="drop")
+
+  pA <- ggplot(nog, aes(Method, nogueira, fill=Method)) +
+    geom_violin(alpha=.7, quantiles=c(.25,.5,.75), linewidth=.4) +
+    geom_jitter(width=.12, size=.5, alpha=.2) +
+    geom_text(data=mu, aes(Method, mv, label=sprintf("%.3f",mv)), vjust=-1.5, size=3.3, fontface="bold") +
+    scale_fill_manual(values=c("SVM-RFE"="#00A087","LASSO"="#2E86AB",
+                                "Gap-Union"="#E64B35","RF"="#F39B7F"), guide="none") +
+    scale_y_continuous(limits=c(-.1,1.05), breaks=seq(0,1,.2)) +
+    labs(title="A", subtitle="Nogueira stability index (132 simulation scenarios)",
+         x=NULL, y="Nogueira stability index") + theme_pub()
+
+  fm <- find_bench_file("benchmark_master.csv")
+  if (!is.na(fm)) {
+    bm <- read.csv(fm, stringsAsFactors=FALSE)
+    sim <- bm[bm$mode=="simulation" & !is.na(bm$precision),]
+    pr <- data.frame(run_id=rep(sim$run_id,3),
+      Method=rep(c("LASSO","RF","SVM-RFE"), each=nrow(sim)),
+      Jaccard=c(sim$lasso_jaccard_mean, sim$rf_jaccard_mean, sim$svm_jaccard_mean),
+      stringsAsFactors=FALSE)
+    nw <- nog %>% select(run_id, Method, nogueira) %>% mutate(Method=as.character(Method))
+    pr <- merge(pr, nw, by=c("run_id","Method"), all.x=TRUE)
+    pr <- pr[complete.cases(pr),]
+    pr$Method <- factor(pr$Method, levels=c("LASSO","RF","SVM-RFE"))
+
+    pB <- ggplot(pr, aes(Jaccard, nogueira, color=Method)) +
+      geom_point(alpha=.4, size=1.2) +
+      geom_abline(slope=1, intercept=0, linetype="dashed", color="grey50") +
+      scale_color_manual(values=c("LASSO"="#2E86AB","RF"="#F39B7F","SVM-RFE"="#00A087")) +
+      scale_x_continuous(limits=c(0,1.05), breaks=seq(0,1,.25)) +
+      scale_y_continuous(limits=c(0,1.05), breaks=seq(0,1,.25)) +
+      annotate("text", x=.85, y=.15, label="RF: high Jaccard\nbut low Nogueira",
+               color="#F39B7F", fontface="italic", size=3) +
+      labs(title="B", subtitle="Jaccard vs. Nogueira (per scenario)",
+           x="Pairwise Jaccard index", y="Nogueira stability index", color="Algorithm") +
+      theme_pub() +
+      theme(legend.position = "top", legend.justification = "left")
+
+    p <- plot_grid(pA, pB, nrow=1)
+    save_fig(p, "Fig03_algorithm_stability", 10, 5)
+    invisible(p)
+  } else {
+    save_fig(pA, "Fig03_algorithm_stability", 6, 5)
+    invisible(pA)
+  }
+}
+
+
+# ==============================================================================
+# Fig. 4  Ablation — A1/A2 paired differences (2-panel)  (was Fig. 3 in v2.x)
+# ==============================================================================
+generate_fig4 <- function() {
   f <- find_bench_file("ablation_A1_A2_full.csv")
-  if (is.na(f)) { cat("[S09] ablation_A1_A2_full.csv not found — skip Fig.3\n"); return(invisible()) }
+  if (is.na(f)) { cat("[S09] ablation_A1_A2_full.csv not found — skip Fig.4\n"); return(invisible()) }
   abl  <- read.csv(f, stringsAsFactors = FALSE)
   runs <- unique(abl$run_id)
 
@@ -170,7 +255,7 @@ generate_fig3 <- function() {
          x=NULL, y=expression(paste(Delta, "F1 (ablated - complete)"))) +
     theme_pub() + theme(panel.grid.major.x=element_blank())
 
-  # Panel B — legend at TOP-LEFT to avoid overlap
+  # Panel B
   decomp <- paired %>% select(run_id, config, dPrec, dRec) %>%
     pivot_longer(c(dPrec, dRec), names_to="metric", values_to="delta") %>%
     mutate(metric = factor(metric, levels=c("dPrec","dRec")))
@@ -197,77 +282,159 @@ generate_fig3 <- function() {
           legend.text.align=0, panel.grid.major.x=element_blank())
 
   p <- plot_grid(pA, pB, nrow=1, rel_widths=c(1, 1.1))
-  save_fig(p, "Fig03_ablation_study", 10, 5)
+  save_fig(p, "Fig04_ablation_study", 10, 5)
   invisible(p)
 }
 
 
 # ==============================================================================
-# Fig. 4  Algorithm stability — violin + scatter
+# Fig. 5  Cross-dataset screening funnel — 2-panel  (NEW in v3.0)
 # ==============================================================================
-generate_fig4 <- function() {
-  f <- find_bench_file("nogueira_stability_all.csv")
-  if (is.na(f)) { cat("[S09] nogueira_stability_all.csv not found — skip Fig.4\n"); return(invisible()) }
-  nog <- read.csv(f, stringsAsFactors = FALSE)
-  nog$Method <- recode(nog$method, "LASSO"="LASSO","SVM"="SVM-RFE","RF"="RF","Gap-Union"="Gap-Union")
-  nog$Method <- factor(nog$Method, levels=c("SVM-RFE","LASSO","Gap-Union","RF"))
+generate_fig5 <- function() {
 
-  mu <- nog %>% group_by(Method) %>% summarise(mv=mean(nogueira,na.rm=TRUE), .groups="drop")
-
-  pA <- ggplot(nog, aes(Method, nogueira, fill=Method)) +
-    geom_violin(alpha=.7, quantiles=c(.25,.5,.75), linewidth=.4) +
-    geom_jitter(width=.12, size=.5, alpha=.2) +
-    geom_text(data=mu, aes(Method, mv, label=sprintf("%.3f",mv)), vjust=-1.5, size=3.3, fontface="bold") +
-    scale_fill_manual(values=c("SVM-RFE"="#00A087","LASSO"="#2E86AB",
-                                "Gap-Union"="#E64B35","RF"="#F39B7F"), guide="none") +
-    scale_y_continuous(limits=c(-.1,1.05), breaks=seq(0,1,.2)) +
-    labs(title="A", subtitle="Nogueira stability index (132 simulation scenarios)",
-         x=NULL, y="Nogueira stability index") + theme_pub()
-
-  fm <- find_bench_file("benchmark_master.csv")
-  if (!is.na(fm)) {
-    bm <- read.csv(fm, stringsAsFactors=FALSE)
-    sim <- bm[bm$mode=="simulation" & !is.na(bm$precision),]
-    pr <- data.frame(run_id=rep(sim$run_id,3),
-      Method=rep(c("LASSO","RF","SVM-RFE"), each=nrow(sim)),
-      Jaccard=c(sim$lasso_jaccard_mean, sim$rf_jaccard_mean, sim$svm_jaccard_mean),
-      stringsAsFactors=FALSE)
-    nw <- nog %>% select(run_id, Method, nogueira) %>% mutate(Method=as.character(Method))
-    pr <- merge(pr, nw, by=c("run_id","Method"), all.x=TRUE)
-    pr <- pr[complete.cases(pr),]
-    pr$Method <- factor(pr$Method, levels=c("LASSO","RF","SVM-RFE"))
-
-    # Legend OUTSIDE plot (top) to avoid data overlap
-    pB <- ggplot(pr, aes(Jaccard, nogueira, color=Method)) +
-      geom_point(alpha=.4, size=1.2) +
-      geom_abline(slope=1, intercept=0, linetype="dashed", color="grey50") +
-      scale_color_manual(values=c("LASSO"="#2E86AB","RF"="#F39B7F","SVM-RFE"="#00A087")) +
-      scale_x_continuous(limits=c(0,1.05), breaks=seq(0,1,.25)) +
-      scale_y_continuous(limits=c(0,1.05), breaks=seq(0,1,.25)) +
-      annotate("text", x=.85, y=.15, label="RF: high Jaccard\nbut low Nogueira",
-               color="#F39B7F", fontface="italic", size=3) +
-      labs(title="B", subtitle="Jaccard vs. Nogueira (per scenario)",
-           x="Pairwise Jaccard index", y="Nogueira stability index", color="Algorithm") +
-      theme_pub() +
-      theme(legend.position = "top", legend.justification = "left")
-
-    p <- plot_grid(pA, pB, nrow=1)
-    save_fig(p, "Fig04_algorithm_stability", 10, 5)
-    invisible(p)
-  } else {
-    save_fig(pA, "Fig04_algorithm_stability", 6, 5)
-    invisible(pA)
+  # ---- Load funnel data for each dataset ----
+  # File is saved by 10_integration.R as "screening_funnel_data.csv" in each
+  # dataset's data/ directory.  Also check BENCH_DIR for renamed copies
+  # (e.g., screening_funnel_dataGSE197067.csv).
+  all_data <- list()
+  for (gse in DS_LEVELS) {
+    f <- NA_character_
+    # Strategy 1: check BENCH_DIR (with GSE suffix)
+    f <- find_bench_file(paste0("screening_funnel_data", gse, ".csv"))
+    # Strategy 2: check pipeline run directory
+    if (is.na(f) && !is.null(RUN_DIRS[[gse]])) {
+      candidate <- file.path(RUN_DIRS[[gse]], "data", "screening_funnel_data.csv")
+      if (file.exists(candidate)) f <- candidate
+    }
+    # Strategy 3: recursive search under pipeline run directory
+    if (is.na(f) && !is.null(RUN_DIRS[[gse]]) && dir.exists(RUN_DIRS[[gse]])) {
+      hits <- list.files(RUN_DIRS[[gse]], pattern = "^screening_funnel_data",
+                         recursive = TRUE, full.names = TRUE)
+      if (length(hits) > 0) f <- hits[1]
+    }
+    if (is.na(f)) { cat(sprintf("[S09] WARNING: funnel data not found for %s\n", gse)); next }
+    df <- read.csv(f, stringsAsFactors = FALSE)
+    df$dataset <- gse
+    all_data[[gse]] <- df
+    cat(sprintf("[S09] Fig5: loaded %s (%d steps) from %s\n", gse, nrow(df), basename(dirname(f))))
   }
+  if (length(all_data) < 2) {
+    cat("[S09] Need >= 2 datasets for Fig.5 — skip\n"); return(invisible())
+  }
+
+  raw <- bind_rows(all_data)
+
+  # ---- Standardize step names ----
+  raw$step_std <- case_when(
+    grepl("Filtered transcriptome", raw$step) ~ "Transcriptome",
+    grepl("maSigPro.*interaction",  raw$step) ~ "maSigPro \u2229 LRT",
+    grepl("maSigPro.*R",            raw$step) &
+      !grepl("interaction",         raw$step) ~ "maSigPro (R\u00b2)",
+    grepl("WGCNA",                  raw$step) ~ "\u2229 WGCNA",
+    grepl("Effect size",            raw$step) ~ "Effect size\nfilter",
+    grepl("Final",                  raw$step) ~ "Final",
+    TRUE                                      ~ NA_character_
+  )
+  df <- raw %>% filter(!is.na(step_std))
+
+  # If both maSigPro R² and interaction exist, keep only interaction
+  df <- df %>%
+    group_by(dataset) %>%
+    mutate(.n_masig = sum(grepl("maSigPro", step_std))) %>%
+    ungroup() %>%
+    filter(!(.n_masig > 1 & step_std == "maSigPro (R\u00b2)")) %>%
+    select(-.n_masig)
+  df$step_std[grepl("maSigPro", df$step_std)] <- "maSigPro \u2229 LRT"
+
+  step_levels <- c("Transcriptome", "maSigPro \u2229 LRT", "\u2229 WGCNA",
+                   "Effect size\nfilter", "Final")
+  df$step_std <- factor(df$step_std, levels = step_levels)
+  df <- df %>% filter(!is.na(step_std))
+  df$dataset  <- factor(df$dataset, levels = DS_LEVELS)
+
+  # ---- Per-step reduction ----
+  df <- df %>%
+    arrange(dataset, step_std) %>%
+    group_by(dataset) %>%
+    mutate(n_prev = lag(n),
+           pct_red = ifelse(!is.na(n_prev) & n_prev > 0,
+                            round(100 * (1 - n / n_prev), 1), NA)) %>%
+    ungroup()
+
+  # ---- Panel A: gene count (log10) ----
+  if (!requireNamespace("ggrepel", quietly = TRUE))
+    install.packages("ggrepel", repos = "https://cloud.r-project.org", quiet = TRUE)
+
+  pA <- ggplot(df, aes(x = step_std, y = n, color = dataset, group = dataset)) +
+    geom_line(linewidth = 0.9, alpha = 0.85) +
+    geom_point(size = 2.8) +
+    ggrepel::geom_text_repel(
+      aes(label = format(n, big.mark = ",")),
+      size = 2.6, fontface = "bold", show.legend = FALSE,
+      direction = "y",              # only repel vertically
+      nudge_y = 0.08,               # slight upward nudge (log scale)
+      segment.size = 0.3,           # thin connector lines
+      segment.color = "grey60",
+      segment.alpha = 0.5,
+      min.segment.length = 0.3,     # show connectors when displaced
+      box.padding = 0.2,
+      point.padding = 0.15,
+      max.overlaps = 20,
+      seed = 42
+    ) +
+    scale_y_log10(labels = comma, breaks = c(10, 100, 1000, 10000),
+                  limits = c(4, 40000)) +
+    scale_color_manual(values = PAL_DATASET, labels = LAB_DATASET, name = "Dataset") +
+    annotation_logticks(sides = "l", size = 0.3, color = "grey60") +
+    labs(title = "A", subtitle = "Gene count at each pipeline step (log scale)",
+         x = NULL, y = "Number of genes") +
+    theme_pub() + theme(axis.text.x = element_text(size = 9, lineheight = 0.9))
+
+  # ---- Panel B: per-step reduction % (exclude Final) ----
+  df_red <- df %>% filter(!is.na(pct_red), step_std != "Final")
+
+  pB <- ggplot(df_red, aes(x = step_std, y = pct_red, fill = dataset)) +
+    geom_col(position = position_dodge(0.75), width = 0.65, alpha = 0.85) +
+    geom_text(aes(label = paste0(pct_red, "%")),
+              position = position_dodge(0.75), vjust = -0.4,
+              size = 2.5, fontface = "bold") +
+    annotate("rect", xmin = 2.5, xmax = 3.5, ymin = -2, ymax = 82,
+             fill = "#FFF3CD", alpha = 0.35) +
+    scale_fill_manual(values = PAL_DATASET, labels = LAB_DATASET, name = "Dataset") +
+    scale_y_continuous(limits = c(0, 85), expand = c(0, 0)) +
+    labs(title = "B", subtitle = "Per-step gene reduction (%)",
+         x = NULL, y = "Reduction from previous step (%)") +
+    theme_pub() +
+    theme(axis.text.x = element_text(size = 9, lineheight = 0.9),
+          legend.position = "none")
+
+  # ---- Combine ----
+  legend_grob <- get_legend(
+    pA + theme(legend.position = "bottom", legend.direction = "horizontal",
+               legend.margin = margin(t = 5))
+  )
+  p_top <- plot_grid(pA + theme(legend.position = "none"), pB,
+                     ncol = 2, rel_widths = c(1.1, 1), align = "h", axis = "tb")
+  p_final <- plot_grid(p_top, legend_grob, ncol = 1, rel_heights = c(1, 0.08))
+
+  save_fig(p_final, "Fig05_cross_dataset_funnel", 12, 6)
+
+  # ---- Summary ----
+  cat("\n[S09] Fig5 — effect size filter reduction by dataset:\n")
+  es <- df_red %>% filter(step_std == "Effect size\nfilter") %>% select(dataset, pct_red)
+  print(as.data.frame(es), row.names = FALSE)
+
+  invisible(p_final)
 }
 
 
 # ==============================================================================
-# Fig. 5  Layer 2 — upstream strategy comparison (2 panels)
+# Fig. 6  Upstream strategy comparison — Layer 2 (was Fig. 5 in v2.x)
 # ==============================================================================
-generate_fig5 <- function() {
+generate_fig6 <- function() {
   f <- find_bench_file("layer2_paper_table.csv")
   if (is.na(f)) {
-    cat("[S09] layer2_paper_table.csv not found anywhere under BENCH_DIR — skip Fig.5\n")
+    cat("[S09] layer2_paper_table.csv not found — skip Fig.6\n")
     return(invisible())
   }
   cat(sprintf("[S09] Using: %s\n", f))
@@ -292,18 +459,18 @@ generate_fig5 <- function() {
   leg <- get_legend(pA + theme(legend.position="bottom", legend.box.margin=margin(t=10)))
   p_top <- plot_grid(pA+theme(legend.position="none"), pB+theme(legend.position="none"), nrow=1)
   p <- plot_grid(p_top, leg, nrow=2, rel_heights=c(1,.1))
-  save_fig(p, "Fig05_layer2_comparison", 11, 5.5)
+  save_fig(p, "Fig06_layer2_comparison", 11, 5.5)
   invisible(p)
 }
 
 
 # ==============================================================================
-# Fig. 6  Layer 3 — ML method comparison (3 panels)
+# Fig. 7  ML method comparison — Layer 3 (was Fig. 6 in v2.x)
 # ==============================================================================
-generate_fig6 <- function() {
+generate_fig7 <- function() {
   f <- find_bench_file("layer3_paper_table.csv")
   if (is.na(f)) {
-    cat("[S09] layer3_paper_table.csv not found anywhere under BENCH_DIR — skip Fig.6\n")
+    cat("[S09] layer3_paper_table.csv not found — skip Fig.7\n")
     return(invisible())
   }
   cat(sprintf("[S09] Using: %s\n", f))
@@ -345,7 +512,7 @@ generate_fig6 <- function() {
                       guides(fill=guide_legend(nrow=1)))
   p_top <- plot_grid(pA, pB, pC, nrow=1, rel_widths=c(.9,1.1,1.1))
   p <- plot_grid(p_top, leg, nrow=2, rel_heights=c(1,.08))
-  save_fig(p, "Fig06_layer3_comparison", 13, 5.5)
+  save_fig(p, "Fig07_layer3_comparison", 13, 5.5)
   invisible(p)
 }
 
@@ -378,13 +545,18 @@ generate_table_S1 <- function() {
 # ==============================================================================
 generate_all_manuscript_figures <- function() {
   cat("\n============================================================\n")
-  cat("  S09 v2.3: Generating manuscript figures for METI-FS\n")
+  cat("  S09 v3.0: Generating manuscript figures for METI-FS\n")
   cat(sprintf("  BENCH_DIR: %s\n", BENCH_DIR))
   cat(sprintf("  FIG_DIR:   %s\n", FIG_DIR))
   cat("============================================================\n\n")
   cat("[NOTE] Fig. 1 (pipeline schematic) — create manually.\n\n")
-  generate_fig2(); generate_fig3(); generate_fig4()
-  generate_fig5(); generate_fig6(); generate_table_S1()
+  generate_fig2()   # Fig. 2: Simulation benchmark
+  generate_fig3()   # Fig. 3: Algorithm stability
+  generate_fig4()   # Fig. 4: Ablation study
+  generate_fig5()   # Fig. 5: Cross-dataset funnel
+  generate_fig6()   # Fig. 6: Upstream strategy (Layer 2)
+  generate_fig7()   # Fig. 7: ML method comparison (Layer 3)
+  generate_table_S1()
   cat("\n============================================================\n")
   cat("  Done. Check FIG_DIR for all outputs.\n")
   cat("============================================================\n")

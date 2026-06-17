@@ -1,52 +1,52 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# S05_benchmark_collector.R — Pipeline run result collection and performance evaluation
+# S05_benchmark_collector.R — Pipeline运行结果收集与性能评估
 #
-# Functions:
-#   1. Extract screening layer data from completed pipeline run directories
-#   2. Simulation mode: compare with ground truth, calculate precision/recall/FDR/F1
-#   3. Real data mode: collect funnel layer gene counts, stability structure, gap quality
-#   4. Unified output format for S06 (ablation study) and S07 (summary figures)
+# 功能：
+#   1. 从已完成的pipeline运行目录中提取各层筛选数据
+#   2. 模拟数据模式：与ground truth比较，计算precision/recall/FDR/F1
+#   3. 真实数据模式：收集漏斗各层gene counts、stability结构、gap质量
+#   4. 统一输出格式供S06（消融实验）和S07（汇总出图）使用
 #
-# Input:
-#   - Pipeline run directory (with .rds and .csv result files under data/ subdirectory)
-#   - For simulation data also requires data/ground_truth.rds
+# 输入：
+#   - pipeline运行目录（含data/子目录下的.rds和.csv结果文件）
+#   - 模拟数据时还需要 data/ground_truth.rds
 #
-# Output:
-#   BENCH_DIR/benchmark_results_{run_id}.rds   — Complete metrics for single run
-#   BENCH_DIR/benchmark_master.csv              — Summary table for all runs (append mode)
+# 输出：
+#   BENCH_DIR/benchmark_results_{run_id}.rds   — 单次运行的完整指标
+#   BENCH_DIR/benchmark_master.csv              — 所有运行的汇总表（追加模式）
 #
-# Usage:
+# 使用方法：
 #   source("S05_benchmark_collector.R")
-#   # Single run directory:
-#   res <- collect_run(file.path(METHODS_BASE, "pipeline_runs", "GEO_GSE307424_Lung"))
-#   # Batch collect simulation data:
-#   collect_all_simulations(file.path(METHODS_BASE, "simulations/benchmark"))
-#   # Batch collect GEO data:
+#   # 单个运行目录：
+#   res <- collect_run(file.path(RUN_DIR, "GEO_GSE307424_Lung"))
+#   # 批量收集模拟数据：
+#   collect_all_simulations(file.path(SIM_DIR, "benchmark")
+#   # 批量收集GEO数据：
 #   collect_all_geo()
 #
-# Literature basis:
+# 文献依据：
 #   - pipeComp (Germain et al. 2020, Genome Biology 21:227):
 #     multi-level evaluation metrics for pipeline benchmarking
 #   - Stabl (Hédou et al. 2024, Nature Biotechnology 42:1581-1593):
-#     FDR/stability evaluation, precision/recall on synthetic data
+#     FDR/stability评估, precision/recall on synthetic data
 #   - Nogueira, Sechidis & Brown 2018, JMLR 18(174):1-54:
-#     stability index (using stabm R package implementation, Bommert 2021)
+#     stability index (使用stabm R包实现, Bommert 2021)
 #
-# v2 changes:
-#   [2.2] Added in collect_stability() pairwise Jaccard index
-#         Ref: Real & Vargas (1996) Syst. Biol. 45(3):380-391
-#   [2.3] Added in build_summary_row() jaccard_mean/sd columns
+# v2 变更:
+#   [2.2] 在 collect_stability() 中添加 pairwise Jaccard index
+#         文献: Real & Vargas (1996) Syst. Biol. 45(3):380-391
+#   [2.3] 在 build_summary_row() 中添加 jaccard_mean/sd 列
 # ==============================================================================
 
-# ---- 0. Load configuration ----
+# ---- 0. 加载配置 ----
 if (file.exists("S_config.R")) {
   source("S_config.R")
-} else if (file.exists(file.path(file.path(METHODS_BASE, "Scripts"), "S_config.R"))) {
-  source(file.path(file.path(METHODS_BASE, "Scripts"), "S_config.R"))
+
+  
 }
 
-# S01 evaluate_selection function (needed for simulation data evaluation）
+# S01的evaluate_selection函数（模拟数据评估需要）
 if (file.exists("S01_simulation_engine.R")) {
   source("S01_simulation_engine.R")
 } else if (file.exists(file.path(METHODS_SCRIPTS, "S01_simulation_engine.R"))) {
@@ -55,15 +55,15 @@ if (file.exists("S01_simulation_engine.R")) {
 
 
 # ==============================================================================
-# Core function: collect_run()
+# 核心函数: collect_run()
 # ==============================================================================
 
-#' Collect all performance metrics from a single pipeline run directory
+#' 从单个pipeline运行目录收集所有性能指标
 #'
-#' @param run_dir Pipeline run directory (containing data/ subdirectory)
-#' @param run_id  Run identifier (for summary table)
+#' @param run_dir pipeline运行目录（包含data/子目录）
+#' @param run_id  运行标识符（用于汇总表）
 #' @param mode    "auto" | "simulation" | "real"
-#'                autoauto-detect whether ground_truth.rds exists
+#'                auto自动检测ground_truth.rds是否存在
 #' @return list: metrics (data.frame), funnel, stability, gap_details
 collect_run <- function(run_dir, run_id = basename(run_dir), mode = "auto") {
 
@@ -74,41 +74,41 @@ collect_run <- function(run_dir, run_id = basename(run_dir), mode = "auto") {
 
   methods_log("S05_COLLECT", sprintf("Collecting from: %s (id=%s)", run_dir, run_id))
 
-  # ---- 0. Determine mode ----
+  # ---- 0. 判断模式 ----
   gt_file <- file.path(data_dir, "ground_truth.rds")
   has_gt <- file.exists(gt_file)
   if (mode == "auto") mode <- ifelse(has_gt, "simulation", "real")
   methods_log("S05_COLLECT", sprintf("Mode: %s (ground_truth: %s)", mode, has_gt))
 
-  # ---- 1. Screening funnel layer data ----
+  # ---- 1. 漏斗各层数据 ----
   funnel <- collect_funnel(data_dir)
 
-  # ---- 2. ML stability structure ----
+  # ---- 2. ML stability结构 ----
   stability <- collect_stability(data_dir)
 
-  # ---- 3. Gap analysis quality ----
+  # ---- 3. Gap分析质量 ----
   gap <- collect_gap_quality(data_dir)
 
-  # ---- 4. PPI hub information ----
+  # ---- 4. PPI hub信息 ----
   ppi <- collect_ppi(data_dir)
 
-  # ---- 5. Final candidate genes ----
+  # ---- 5. 最终候选基因 ----
   final <- collect_final_candidates(data_dir)
 
-  # ---- 6. Performance metrics (simulation data only) ----
+  # ---- 6. 性能指标（模拟数据专用） ----
   perf <- NULL
   if (mode == "simulation" && has_gt) {
     perf <- evaluate_against_ground_truth(data_dir)
   }
 
-  # ---- 7. Assemble metrics summary row (one row, for appending to master CSV) ----
+  # ---- 7. 组装指标摘要行（一行，用于追加到master CSV） ----
   summary_row <- build_summary_row(
     run_id = run_id, mode = mode,
     funnel = funnel, stability = stability,
     gap = gap, ppi = ppi, final = final, perf = perf
   )
 
-  # ---- 8. Package output ----
+  # ---- 8. 打包输出 ----
   result <- list(
     run_id    = run_id,
     run_dir   = run_dir,
@@ -122,12 +122,12 @@ collect_run <- function(run_dir, run_id = basename(run_dir), mode = "auto") {
     perf      = perf
   )
 
-  # Save single run results
+  # 保存单次运行结果
   out_file <- file.path(BENCH_DIR, sprintf("benchmark_results_%s.rds", run_id))
   saveRDS(result, out_file)
   methods_log("S05_COLLECT", sprintf("Saved: %s", basename(out_file)))
 
-  # Append to master CSV
+  # 追加到master CSV
   append_to_master(summary_row)
 
   return(result)
@@ -135,15 +135,15 @@ collect_run <- function(run_dir, run_id = basename(run_dir), mode = "auto") {
 
 
 # ==============================================================================
-# Sub-collection functions
+# 子收集函数
 # ==============================================================================
 
-#' Collect gene counts at each funnel layer
+#' 收集漏斗各层基因数
 collect_funnel <- function(data_dir) {
 
   result <- list()
 
-  # screening_funnel_data.csv（10_integration output）
+  # screening_funnel_data.csv（10_integration输出）
   funnel_file <- file.path(data_dir, "screening_funnel_data.csv")
   if (file.exists(funnel_file)) {
     df <- read.csv(funnel_file, stringsAsFactors = FALSE)
@@ -155,7 +155,7 @@ collect_funnel <- function(data_dir) {
     }
   }
 
-  # Candidate pool details (09A output)
+  # 候选池详情（09A输出）
   pool_file <- file.path(data_dir, "candidate_pool.rds")
   if (file.exists(pool_file)) {
     pool <- readRDS(pool_file)
@@ -172,7 +172,7 @@ collect_funnel <- function(data_dir) {
 }
 
 
-#' Collect ML stability selection structure
+#' 收集ML stability selection结构
 collect_stability <- function(data_dir) {
 
   result <- list()
@@ -182,7 +182,7 @@ collect_stability <- function(data_dir) {
 
   stab <- readRDS(stab_file)
 
-  # Frequency distribution summary for each algorithm
+  # 每个算法的频率分布摘要
   for (algo in c("lasso", "rf", "svm")) {
     freq_vec <- stab[[paste0(algo, "_freq")]]
     if (is.null(freq_vec)) next
@@ -203,7 +203,7 @@ collect_stability <- function(data_dir) {
     result[[paste0(algo, "_gini")]]      <- round(gini, 4)
   }
 
-  # Selection matrices (for Nogueira metric calculation)
+  # Selection matrices（用于Nogueira指标计算）
   result$has_selection_matrices <- all(c(
     "lasso_selection_matrix", "rf_selection_matrix", "svm_selection_matrix"
   ) %in% names(stab))
@@ -215,7 +215,7 @@ collect_stability <- function(data_dir) {
     result$n_bootstrap   <- stab$params$n_bootstrap
 
     # [v2] Pairwise Jaccard index for each algorithm's selection matrix
-    # Ref: Real & Vargas (1996); Nogueira et al. (2018) recommend comparing
+    # 文献: Real & Vargas (1996); Nogueira et al. (2018) recommend comparing
     #        adjusted (Nogueira) and unadjusted (Jaccard) stability metrics
     for (algo in c("lasso", "rf", "svm")) {
       mat_name <- paste0(algo, "_sel_mat")
@@ -231,7 +231,7 @@ collect_stability <- function(data_dir) {
 }
 
 
-#' Collect gap thresholding quality metrics
+#' 收集gap thresholding质量指标
 collect_gap_quality <- function(data_dir) {
 
   result <- list()
@@ -242,7 +242,7 @@ collect_gap_quality <- function(data_dir) {
   gap_df <- read.csv(gap_file, stringsAsFactors = FALSE)
   result$gap_df <- gap_df
 
-  # 09D complete results
+  # 09D完整结果
   gap_rds <- file.path(data_dir, "ml_gap_union.rds")
   if (file.exists(gap_rds)) {
     gap_data <- readRDS(gap_rds)
@@ -253,7 +253,7 @@ collect_gap_quality <- function(data_dir) {
     }
   }
 
-  # Gap quality for each algorithm
+  # 每个算法的gap质量
   for (algo in unique(gap_df$algorithm)) {
     sub <- gap_df[gap_df$algorithm == algo, ]
     freqs <- sub$freq
@@ -261,7 +261,7 @@ collect_gap_quality <- function(data_dir) {
 
     max_gap    <- ifelse(length(gaps) > 0, max(gaps), 0)
     max_freq   <- max(freqs)
-    n_selected <- sum(freqs > 0.5)  # rough count
+    n_selected <- sum(freqs > 0.5)  # 粗略计数
 
     # Gap-to-signal ratio: max_gap / max_freq
     gap_signal_ratio <- ifelse(max_freq > 0, max_gap / max_freq, 0)
@@ -276,7 +276,7 @@ collect_gap_quality <- function(data_dir) {
 }
 
 
-#' Collect PPI hub information
+#' 收集PPI hub信息
 collect_ppi <- function(data_dir) {
 
   result <- list(n_ppi_hubs = 0, hub_symbols = character(0))
@@ -289,7 +289,7 @@ collect_ppi <- function(data_dir) {
   result$hub_symbols  <- hub_df$symbol
   result$hub_df       <- hub_df
 
-  # PPI complete results
+  # PPI完整结果
   ppi_rds <- file.path(data_dir, "ppi_hub_selection.rds")
   if (file.exists(ppi_rds)) {
     ppi_data <- readRDS(ppi_rds)
@@ -304,7 +304,7 @@ collect_ppi <- function(data_dir) {
 }
 
 
-#' Collect final candidate genes
+#' 收集最终候选基因
 collect_final_candidates <- function(data_dir) {
 
   result <- list(n_final = 0)
@@ -318,7 +318,7 @@ collect_final_candidates <- function(data_dir) {
   result$gene_ids    <- df$ensembl_id
   result$symbols     <- df$symbol
 
-  # ML vs PPI source statistics
+  # ML vs PPI来源统计
   result$n_from_ml   <- sum(df$in_ML == TRUE | df$in_ML == "TRUE", na.rm = TRUE)
   result$n_from_ppi  <- sum(df$is_WGCNA_hub == TRUE | df$is_WGCNA_hub == "TRUE", na.rm = TRUE)
   result$n_ml_and_ppi <- sum(
@@ -334,23 +334,23 @@ collect_final_candidates <- function(data_dir) {
 
 
 # ==============================================================================
-# Ground truth evaluation (simulation data only)
+# Ground truth评估（模拟数据专用）
 # ==============================================================================
 
-#' Compare with simulation ground truth, calculate per-layer and final performance
+#' 与模拟数据的ground truth比较，计算各层和最终的performance
 evaluate_against_ground_truth <- function(data_dir) {
 
   gt <- readRDS(file.path(data_dir, "ground_truth.rds"))
   result <- list()
 
-  # --- Final candidates vs TRUE_TEMPORAL ---
+  # --- 最终候选 vs TRUE_TEMPORAL ---
   final_file <- file.path(data_dir, "Final_candidate_genes.csv")
   if (file.exists(final_file)) {
     final_df <- read.csv(final_file, stringsAsFactors = FALSE)
     final_ids <- final_df$ensembl_id
     result$final <- evaluate_selection(final_ids, gt, "TRUE_TEMPORAL")
     result$final_any <- evaluate_selection(final_ids, gt, "TRUE_TEMPORAL")
-    # Also compute a relaxed version: selected genes matching any signal (including TRUE_MAIN, TRUE_TIME)
+    # 也算一个宽松版：选中的基因是任何有信号的（含TRUE_MAIN, TRUE_TIME）
     result$final$precision_any_signal <- sum(final_ids %in%
       gt$gene_id[gt$class != "NULL"]) / max(length(final_ids), 1)
   }
@@ -367,8 +367,8 @@ evaluate_against_ground_truth <- function(data_dir) {
   ppi_file <- file.path(data_dir, "PPI_09F_hub_genes.csv")
   if (file.exists(ppi_file)) {
     ppi_df <- read.csv(ppi_file, stringsAsFactors = FALSE)
-    # PPI hubs use symbol, ground truth uses gene_id → need matching
-    # In simulation data gene_id = symbol, so direct matching works
+    # PPI hub用symbol，ground truth用gene_id → 需要匹配
+    # 模拟数据中gene_id = symbol，所以可以直接用
     ppi_ids <- ppi_df$ensembl_id
     if (all(is.na(ppi_ids)) || length(ppi_ids) == 0) {
       ppi_ids <- ppi_df$symbol  # fallback
@@ -376,7 +376,7 @@ evaluate_against_ground_truth <- function(data_dir) {
     result$ppi <- evaluate_selection(ppi_ids, gt, "TRUE_TEMPORAL")
   }
 
-  # --- Candidate pool (09A) vs TRUE_TEMPORAL ---
+  # --- 候选池 (09A) vs TRUE_TEMPORAL ---
   pool_file <- file.path(data_dir, "candidate_pool.rds")
   if (file.exists(pool_file)) {
     pool <- readRDS(pool_file)
@@ -394,7 +394,7 @@ evaluate_against_ground_truth <- function(data_dir) {
     }
   }
 
-  # --- Summarize per-layer recall decay (funnel tracking) ---
+  # --- 汇总各层recall衰减（漏斗追踪） ---
   layer_names <- c("masigpro", "pool", "ml", "ppi", "final")
   recall_track <- data.frame(
     layer = layer_names,
@@ -416,10 +416,10 @@ evaluate_against_ground_truth <- function(data_dir) {
 
 
 # ==============================================================================
-# Summary row construction
+# 汇总行构建
 # ==============================================================================
 
-#' Build one summary row (for master CSV)
+#' 构建一行汇总数据（用于master CSV）
 build_summary_row <- function(run_id, mode, funnel, stability,
                                gap, ppi, final, perf) {
 
@@ -427,7 +427,7 @@ build_summary_row <- function(run_id, mode, funnel, stability,
     run_id              = run_id,
     mode                = mode,
     timestamp           = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-    # Funnel
+    # 漏斗
     n_transcriptome     = funnel$n_candidate_pool %||% NA,
     n_masigpro_raw      = funnel$n_masigpro_raw %||% NA,
     n_masigpro_interact = funnel$n_masigpro_interaction %||% NA,
@@ -470,7 +470,7 @@ build_summary_row <- function(run_id, mode, funnel, stability,
     stringsAsFactors = FALSE
   )
 
-  # Simulation-data-only columns
+  # 模拟数据专用列
   if (!is.null(perf) && !is.null(perf$final)) {
     row$precision    <- perf$final$precision
     row$recall       <- perf$final$recall
@@ -489,8 +489,8 @@ build_summary_row <- function(run_id, mode, funnel, stability,
 # [v2] Pairwise Jaccard index
 # ==============================================================================
 
-#' Calculate pairwise Jaccard index from bootstrap selection matrix
-#' @param sel_matrix  binary matrix (n_bootstrap × n_genes), 1=selected
+#' 从bootstrap selection矩阵计算 pairwise Jaccard index
+#' @param sel_matrix  binary矩阵 (n_bootstrap × n_genes), 1=被选中
 #' @return list(mean, sd, n_pairs)
 compute_pairwise_jaccard <- function(sel_matrix, freq_threshold = 0) {
   if (is.null(sel_matrix) || nrow(sel_matrix) < 2) {
@@ -529,19 +529,19 @@ compute_pairwise_jaccard <- function(sel_matrix, freq_threshold = 0) {
 
 
 # ==============================================================================
-# Master CSV management
+# Master CSV管理
 # ==============================================================================
 
-#' Append one row to benchmark_master.csv
+#' 追加一行到benchmark_master.csv
 append_to_master <- function(row_df) {
 
   master_file <- file.path(BENCH_DIR, "benchmark_master.csv")
 
   if (file.exists(master_file)) {
     existing <- read.csv(master_file, stringsAsFactors = FALSE)
-    # If run_id already exists, replace
+    # 如果run_id已存在，替换
     existing <- existing[existing$run_id != row_df$run_id, , drop = FALSE]
-    # Align column names (new columns may not exist in old data)
+    # 对齐列名（新列可能不存在于旧数据中）
     all_cols <- union(colnames(existing), colnames(row_df))
     for (col in setdiff(all_cols, colnames(existing))) existing[[col]] <- NA
     for (col in setdiff(all_cols, colnames(row_df))) row_df[[col]] <- NA
@@ -557,14 +557,14 @@ append_to_master <- function(row_df) {
 
 
 # ==============================================================================
-# Batch collection functions
+# 批量收集函数
 # ==============================================================================
 
-#' Batch collect all simulation pipeline results
+#' 批量收集所有模拟数据的pipeline结果
 #'
-#' @param sim_base_dir Simulation benchmark root directory
-#'        Expected structure: sim_base_dir/{scenario_name}/data/{pipeline outputs}
-#'        i.e., directory after S01 generates simulation → S02 adapts → S04 runs pipeline
+#' @param sim_base_dir 模拟数据benchmark根目录
+#'        期望结构: sim_base_dir/{scenario_name}/data/{pipeline outputs}
+#'        即S01生成模拟 → S02适配 → S04跑pipeline后的目录
 collect_all_simulations <- function(
     sim_base_dir = file.path(RUN_DIR, "simulations"),
     pattern = "^(low|medium|high)_") {
@@ -574,7 +574,7 @@ collect_all_simulations <- function(
     return(invisible(NULL))
   }
 
-  # Find all scenarios with data/ subdirectory
+  # 查找所有含data/子目录的场景
   all_dirs <- list.dirs(sim_base_dir, recursive = FALSE, full.names = TRUE)
   run_dirs <- all_dirs[sapply(all_dirs, function(d) {
     dir.exists(file.path(d, "data")) &&
@@ -604,7 +604,7 @@ collect_all_simulations <- function(
 }
 
 
-#' Batch collect pipeline results for all GEO datasets
+#' 批量收集所有GEO数据集的pipeline结果
 collect_all_geo <- function() {
 
   geo_runs <- list(
@@ -631,10 +631,10 @@ collect_all_geo <- function() {
 
 
 # ==============================================================================
-# Diagnostic print
+# 诊断打印
 # ==============================================================================
 
-#' Print diagnostic summary for single run
+#' 打印单次运行的诊断摘要
 print_run_summary <- function(result) {
 
   cat("\n")
@@ -642,7 +642,7 @@ print_run_summary <- function(result) {
   cat(sprintf("  Run: %s (%s)\n", result$run_id, result$mode))
   cat("================================================================\n")
 
-  # Funnel
+  # 漏斗
   f <- result$funnel
   cat("\n  [FUNNEL]\n")
   if (!is.null(f$funnel_df)) {
@@ -703,7 +703,7 @@ print_run_summary <- function(result) {
 
 
 # ==============================================================================
-# Demo when running directly
+# 直接运行时的demo
 # ==============================================================================
 
 if (sys.nframe() == 0) {
@@ -712,17 +712,17 @@ if (sys.nframe() == 0) {
   cat("  S05_benchmark_collector.R — Usage\n")
   cat("================================================================\n")
   cat("\n")
-  cat("  # Collect single GEO dataset result:\n")
-  cat("  res <- collect_run('METHODS_BASE')\n")
+  cat("  # 收集单个GEO数据集结果:\n")
+  cat("  res <- collect_run(file.path(RUN_DIR, 'GEO_GSE307424_Lung'))\n")
   cat("  print_run_summary(res)\n")
   cat("\n")
-  cat("  # Batch collect all GEO:\n")
+  cat("  # 批量收集所有GEO:\n")
   cat("  geo_results <- collect_all_geo()\n")
   cat("\n")
-  cat("  # Batch collect all simulation data:\n")
+  cat("  # 批量收集所有模拟数据:\n")
   cat("  sim_results <- collect_all_simulations()\n")
   cat("\n")
-  cat("  # View master summary table:\n")
+  cat("  # 查看master汇总表:\n")
   cat("  master <- read.csv(file.path(BENCH_DIR, 'benchmark_master.csv'))\n")
   cat("================================================================\n")
 }

@@ -5,7 +5,7 @@ title: "METI-FS: Multi-Evidence Temporal Integration for Feature Selection"
 version: 1.0.0
 date-released: "2026-04-01"
 license: MIT
-repository-code: "https://github.com/[PLACEHOLDER_GITHUB_USER]/METI-FS"
+repository-code: "https://github.com/zhenzhensiat/METI-FS"
 authors:
   - family-names: "Zhang"
     given-names: "Zhen"
